@@ -1,0 +1,49 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openfoodfacts-kmeans-app
+    environment:
+      MONGO_URI: mongodb://mongo:27017/openfoodfacts
+      MONGO_DATABASE: openfoodfacts
+    volumes:
+      - ./src/spark:/app/src/spark
+      - ./src/data:/app/src/data
+      - ./src/artifacts:/app/src/artifacts
+      - ./src/models:/app/src/models
+    depends_on:
+      mongo:
+        condition: service_healthy
+    command: ["python", "main.py", "train"]
+
+  mongo:
+    image: mongo:7
+    container_name: openfoodfacts-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  mongo-express:
+    image: mongo-express:1
+    container_name: openfoodfacts-mongo-express
+    ports:
+      - "8081:8081"
+    environment:
+      ME_CONFIG_MONGODB_SERVER: mongo
+      ME_CONFIG_MONGODB_PORT: 27017
+      ME_CONFIG_BASICAUTH_USERNAME: admin
+      ME_CONFIG_BASICAUTH_PASSWORD: admin
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:

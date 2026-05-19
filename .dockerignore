@@ -1,0 +1,10 @@
+.git
+.idea
+.venv
+__pycache__
+*.pyc
+.DS_STORE
+
+src/data/*.parquet
+src/artifacts
+src/models

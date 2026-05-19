@@ -87,12 +87,86 @@ admin
 admin
 ```
 
-### 2. Запустить контейнер с моделью
+### Scala-витрина данных
 
-После запуска MongoDB и Mongo Express нужно отдельно запустить контейнер приложения:
+В проект добавлена минимальная витрина данных на Scala в папке `src/datamart`.
+Она поднимает HTTP API поверх MongoDB и задает единый JSON-формат обмена между моделью и источником данных. На этом шаге витрина не выполняет предобработку признаков: она только принимает запросы, читает/пишет документы и сохраняет результаты работы модели.
+
+Запуск витрины через Docker Compose:
 
 ```bash
-docker compose run --rm app python main.py train
+docker compose up -d mongo datamart
+```
+
+Проверка доступности:
+
+```bash
+curl http://localhost:8090/health
+```
+
+Единый формат ответа:
+
+```json
+{
+  "status": "ok",
+  "data": {}
+}
+```
+
+При ошибке:
+
+```json
+{
+  "status": "error",
+  "error": "Описание ошибки"
+}
+```
+
+Основные маршруты витрины:
+
+- `POST /v1/source/training/query` — получить данные для обучения из источника;
+- `POST /v1/model-results/training` — сохранить результаты обучения модели;
+- `POST /v1/model-results/predictions` — сохранить результаты тестирования/предсказания модели.
+
+Пример запроса к источнику:
+
+```bash
+curl -X POST http://localhost:8090/v1/source/training/query \
+  -H 'Content-Type: application/json' \
+  -d '{"fields":["product_name","energy-kcal_100g"],"limit":10}'
+```
+
+Пример сохранения результатов предсказания:
+
+```bash
+curl -X POST http://localhost:8090/v1/model-results/predictions \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "sourcePath": "../data/food_small.parquet",
+    "predictions": [
+      {
+        "product_name": "Example product",
+        "prediction": 1
+      }
+    ]
+  }'
+```
+
+Следующий шаг архитектурно простой: заменить прямые вызовы `MongoStorage` в Python-модели на HTTP-вызовы к этой витрине.
+
+### 2. Запустить контейнер с моделью
+
+Контейнер модели вынесен в профиль `model`, чтобы обычный `docker compose up` поднимал только MongoDB, Mongo Express и витрину данных.
+Перед запуском модели в папке `src/data` должен быть файл:
+
+```text
+src/data/food_small.parquet
+```
+
+После этого можно запустить обучение:
+
+```bash
+docker compose --profile model run --rm app python main.py train
 ```
 
 При запуске обучения приложение:

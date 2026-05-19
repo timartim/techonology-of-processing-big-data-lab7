@@ -17,6 +17,24 @@ services:
         condition: service_healthy
     command: ["python", "main.py", "train"]
 
+  datamart:
+    build:
+      context: .
+      dockerfile: Dockerfile.datamart
+    container_name: openfoodfacts-datamart
+    environment:
+      DATAMART_HOST: 0.0.0.0
+      DATAMART_PORT: 8090
+      MONGO_URI: mongodb://mongo:27017/openfoodfacts
+      MONGO_DATABASE: openfoodfacts
+    ports:
+      - "8090:8090"
+    volumes:
+      - ./src/datamart:/app/src/datamart
+    depends_on:
+      mongo:
+        condition: service_healthy
+
   mongo:
     image: mongo:7
     container_name: openfoodfacts-mongo

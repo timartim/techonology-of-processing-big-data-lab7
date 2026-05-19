@@ -1,6 +1,6 @@
 {
-  "best_k": 2,
-  "best_score": 0.502596490895811,
+  "best_k": 3,
+  "best_score": 0.5190509056597988,
   "metric_name": "silhouette",
   "rows_total": 100000,
   "rows_working": 99860,

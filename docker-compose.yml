@@ -5,15 +5,14 @@ services:
       dockerfile: Dockerfile
     container_name: openfoodfacts-kmeans-app
     environment:
-      MONGO_URI: mongodb://mongo:27017/openfoodfacts
-      MONGO_DATABASE: openfoodfacts
+      DATAMART_URL: http://datamart:8090
     volumes:
       - ./src/spark:/app/src/spark
       - ./src/data:/app/src/data
       - ./src/artifacts:/app/src/artifacts
       - ./src/models:/app/src/models
     depends_on:
-      mongo:
+      datamart:
         condition: service_healthy
     command: ["python", "main.py", "train"]
 
@@ -31,6 +30,13 @@ services:
       - "8090:8090"
     volumes:
       - ./src/datamart:/app/src/datamart
+      - ./src/data:/app/src/data
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8090'"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 20s
     depends_on:
       mongo:
         condition: service_healthy

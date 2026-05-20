@@ -90,7 +90,7 @@ admin
 ### Scala-витрина данных
 
 В проект добавлена минимальная витрина данных на Scala в папке `src/datamart`.
-Она поднимает HTTP API поверх MongoDB и задает единый JSON-формат обмена между моделью и источником данных. На этом шаге витрина не выполняет предобработку признаков: она только принимает запросы, читает/пишет документы и сохраняет результаты работы модели.
+Она поднимает HTTP API, читает parquet-файл, выполняет простую предобработку признаков и сохраняет результаты обучения в MongoDB. Модель взаимодействует только с витриной.
 
 Запуск витрины через Docker Compose:
 
@@ -124,35 +124,16 @@ curl http://localhost:8090/health
 
 Основные маршруты витрины:
 
-- `POST /v1/source/training/query` — получить данные для обучения из источника;
-- `POST /v1/model-results/training` — сохранить результаты обучения модели;
-- `POST /v1/model-results/predictions` — сохранить результаты тестирования/предсказания модели.
+- `POST /v1/training-data` — прочитать parquet, выполнить предобработку и вернуть данные модели;
+- `POST /v1/training-results` — сохранить результаты обучения модели в MongoDB.
 
-Пример запроса к источнику:
-
-```bash
-curl -X POST http://localhost:8090/v1/source/training/query \
-  -H 'Content-Type: application/json' \
-  -d '{"fields":["product_name","energy-kcal_100g"],"limit":10}'
-```
-
-Пример сохранения результатов предсказания:
+Пример получения данных для обучения:
 
 ```bash
-curl -X POST http://localhost:8090/v1/model-results/predictions \
+curl -X POST http://localhost:8090/v1/training-data \
   -H 'Content-Type: application/json' \
-  -d '{
-    "sourcePath": "../data/food_small.parquet",
-    "predictions": [
-      {
-        "product_name": "Example product",
-        "prediction": 1
-      }
-    ]
-  }'
+  -d '{"inputPath":"../data/food_small.parquet","minNonNullRatio":0.9,"targetRows":100000,"seed":42}'
 ```
-
-Следующий шаг архитектурно простой: заменить прямые вызовы `MongoStorage` в Python-модели на HTTP-вызовы к этой витрине.
 
 ### 2. Запустить контейнер с моделью
 
@@ -171,17 +152,14 @@ docker compose --profile model run --rm app python main.py train
 
 При запуске обучения приложение:
 
-1. читает `src/data/food_small.parquet`;
-2. выгружает содержимое parquet в MongoDB, коллекция `training_data`;
-3. загружает данные для обучения из MongoDB;
-4. обучает модель `KMeans`;
-5. сохраняет результаты обучения в файлы и MongoDB.
+1. запрашивает подготовленные данные у Scala-витрины;
+2. обучает модель `KMeans`;
+3. сохраняет локальные артефакты модели и CSV;
+4. отправляет результаты обучения в Scala-витрину;
+5. витрина сохраняет результаты в MongoDB.
 
 Результаты в MongoDB сохраняются в коллекции:
 
-- `training_data`
-- `imports`
-- `training_clusters`
 - `cluster_profiles`
 - `cluster_centers`
 - `training_metrics`

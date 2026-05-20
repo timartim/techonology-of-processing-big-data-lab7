@@ -8,7 +8,7 @@ from pyspark.sql import functions as F
 
 from app_config import AppConfig
 from artifact_writer import ArtifactWriter
-from mongo_storage import MongoStorage
+from datamart_client import DataMartClient
 from preprocessing import FoodPreprocessor
 from spark_session import SparkManager
 
@@ -20,6 +20,7 @@ class FoodClusterService:
             min_non_null_ratio=cfg.preprocessing.min_non_null_ratio,
             imputer_strategy=cfg.preprocessing.imputer_strategy,
         )
+        self.datamart = DataMartClient(cfg.datamart.url)
 
     def _resolve(self, path_str: str) -> Path:
         return (self.cfg.base_dir / path_str).resolve()
@@ -109,7 +110,6 @@ class FoodClusterService:
 
     def train(self):
         spark = SparkManager(self.cfg.spark).create_session()
-        mongo = MongoStorage(self.cfg.mongo)
         try:
             input_path = self._resolve(self.cfg.data.input_path)
             clusters_csv_path = self._resolve(self.cfg.data.clusters_csv_path)
@@ -117,33 +117,14 @@ class FoodClusterService:
             centers_csv_path = self._resolve(self.cfg.data.centers_csv_path)
             metrics_json_path = self._resolve(self.cfg.data.metrics_json_path)
 
-            parquet_raw = spark.read.parquet(str(input_path))
-            imported_rows = mongo.replace_training_data(parquet_raw, source_path=str(input_path))
-            print(
-                f"В MongoDB сохранен parquet для обучения: "
-                f"{self.cfg.mongo.training_collection}, rows={imported_rows}"
-            )
-
-            parquet_training_df, feature_cols, product_col_names, total_rows = self.preprocessor.prepare_training_frame(parquet_raw)
-            parquet_training_df.unpersist()
-
-            mongo_columns = feature_cols.copy()
-            if "product_name" in parquet_raw.columns:
-                mongo_columns.append("product_name")
-
-            mongo_raw = mongo.load_training_data(spark, columns=mongo_columns)
-            print(f"Данные для обучения загружены из MongoDB: {self.cfg.mongo.training_collection}")
-
-            df = self.preprocessor.prepare_inference_frame(
-                raw=mongo_raw,
-                feature_cols=feature_cols,
-                expected_product_cols=product_col_names,
-            )
-            df, working_n = self.preprocessor.sample_frame(
-                df,
-                target_n=self.cfg.preprocessing.target_n,
+            df, feature_cols, product_col_names, total_rows, working_n = self.datamart.load_prepared_training_data(
+                spark=spark,
+                input_path=self.cfg.data.input_path,
+                min_non_null_ratio=self.cfg.preprocessing.min_non_null_ratio,
+                target_rows=self.cfg.preprocessing.target_n,
                 seed=self.cfg.training.seed,
             )
+            print(f"Предобработанные данные загружены из витрины: rows={working_n}")
 
             prepared, imputer_model, scaler_model, imputed_cols = self.preprocessor.fit_transform(df, feature_cols)
 
@@ -190,8 +171,7 @@ class FoodClusterService:
                 },
             }
             ArtifactWriter.save_json(model_info, paths["model_info"])
-            mongo.save_training_results(
-                clusters_df=clusters_df,
+            self.datamart.save_training_results(
                 profiles_df=profiles_df,
                 centers_df=centers_df,
                 metrics=metrics,
@@ -206,9 +186,8 @@ class FoodClusterService:
             print(f"Сохранена модель imputera: {paths['imputer_model']}")
             print(f"Сохранена модель scaler: {paths['scaler_model']}")
             print(f"Сохранен файл: {paths['model_info']}")
-            print("Результаты обучения сохранены в MongoDB")
+            print("Результаты обучения сохранены через витрину данных")
         finally:
-            mongo.close()
             try:
                 spark.stop()
             except Exception:

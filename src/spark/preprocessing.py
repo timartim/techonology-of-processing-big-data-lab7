@@ -1,18 +1,9 @@
 from pyspark.sql import functions as F
 from pyspark.sql.types import (
-    DoubleType,
-    FloatType,
-    IntegerType,
-    LongType,
-    ShortType,
-    DecimalType,
     ArrayType,
     StructType,
 )
 from pyspark.ml.feature import VectorAssembler, StandardScaler, Imputer
-
-
-NUMERIC_TYPES = (DoubleType, FloatType, IntegerType, LongType, ShortType, DecimalType)
 
 
 class FoodPreprocessor:
@@ -55,74 +46,6 @@ class FoodPreprocessor:
             return exprs, names
 
         return [F.col("product_name").cast("string").alias("product_name")], ["product_name"]
-
-    def get_numeric_cols(self, raw):
-        return [
-            field.name
-            for field in raw.schema.fields
-            if isinstance(field.dataType, NUMERIC_TYPES)
-        ]
-
-    def select_feature_cols(self, raw, numeric_cols, total_rows: int):
-        non_null_counts = raw.agg(
-            *[F.count(F.col(c)).alias(c) for c in numeric_cols]
-        ).first().asDict()
-
-        return [
-            c for c in numeric_cols
-            if non_null_counts[c] / total_rows >= self.min_non_null_ratio
-        ]
-
-    def prepare_training_frame(self, raw):
-        total_rows = raw.count()
-        if total_rows == 0:
-            raise ValueError("Входной parquet пустой")
-
-        numeric_cols = self.get_numeric_cols(raw)
-        if not numeric_cols:
-            raise ValueError("Не найдено числовых top-level колонок")
-
-        feature_cols = self.select_feature_cols(raw, numeric_cols, total_rows)
-        if not feature_cols:
-            raise ValueError("Нет числовых колонок с достаточной долей заполненности")
-
-        product_exprs, product_col_names = self.build_product_name_columns(raw)
-
-        select_exprs = []
-        select_exprs.extend(product_exprs)
-        select_exprs.extend(F.col(c).cast("double").alias(c) for c in feature_cols)
-
-        df = raw.select(*select_exprs)
-
-        std_map = df.agg(
-            *[F.stddev_samp(F.col(c)).alias(c) for c in feature_cols]
-        ).first().asDict()
-
-        feature_cols = [
-            c for c in feature_cols
-            if std_map[c] is not None and std_map[c] > 0
-        ]
-
-        if not feature_cols:
-            raise ValueError("После удаления константных признаков не осталось колонок")
-
-        keep_cols = product_col_names + feature_cols
-        df = df.select(*keep_cols).dropDuplicates().cache()
-
-        return df, feature_cols, product_col_names, total_rows
-
-    def sample_frame(self, df, target_n: int, seed: int):
-        total_n = df.count()
-
-        if total_n > target_n:
-            fraction = target_n / total_n
-            df = df.sample(withReplacement=False, fraction=fraction, seed=seed).limit(target_n)
-
-        working_n = df.count()
-        if working_n < 10:
-            raise ValueError("Слишком мало строк после предобработки")
-
-        return df, working_n
 
     def fit_transform(self, df, feature_cols):
         imputed_cols = [f"{c}_imp" for c in feature_cols]

@@ -1,0 +1,17 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8090
+  },
+  "spark": {
+    "app_name": "OpenFoodFacts-DataMart",
+    "master": "local[*]",
+    "driver_memory": "2g",
+    "shuffle_partitions": "8",
+    "log_level": "WARN"
+  },
+  "mongo": {
+    "uri": "mongodb://mongo:27017/openfoodfacts",
+    "database": "openfoodfacts"
+  }
+}

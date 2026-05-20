@@ -6,3 +6,6 @@ src/data/food.parquet
 
 *.parquet
 *.pyc
+
+src/datamart/target/
+src/datamart/project/target/

@@ -2,7 +2,6 @@ package ru.bigdata.datamart
 
 import com.sun.net.httpserver.{HttpExchange, HttpServer}
 import io.circe.Json
-import io.circe.parser.parse
 import org.apache.spark.sql.{Column, SparkSession}
 import org.apache.spark.sql.functions._
 import org.apache.spark.sql.types._
@@ -10,34 +9,39 @@ import org.apache.spark.sql.types._
 import java.net.InetSocketAddress
 import java.nio.charset.StandardCharsets
 import java.nio.file.{Path, Paths}
-import java.util.concurrent.CountDownLatch
+import java.util.concurrent.{CountDownLatch, Executors}
 import scala.util.control.NonFatal
+import Protocol._
 
 object DataMartApp {
+  private val config = DataMartConfig.load()
+
   private val spark = SparkSession
     .builder()
-    .appName("OpenFoodFacts-DataMart")
-    .master("local[*]")
+    .appName(config.spark.appName)
+    .master(config.spark.master)
+    .config("spark.driver.memory", config.spark.driverMemory)
+    .config("spark.sql.shuffle.partitions", config.spark.shufflePartitions)
     .getOrCreate()
 
-  spark.sparkContext.setLogLevel("WARN")
+  spark.sparkContext.setLogLevel(config.spark.logLevel)
 
   private val store = new MongoStore(
-    sys.env.getOrElse("MONGO_URI", "mongodb://localhost:27017/openfoodfacts"),
-    sys.env.getOrElse("MONGO_DATABASE", "openfoodfacts")
+    config.mongo.uri,
+    config.mongo.database
   )
 
   def main(args: Array[String]): Unit = {
-    val host = sys.env.getOrElse("DATAMART_HOST", "0.0.0.0")
-    val port = sys.env.get("DATAMART_PORT").flatMap(_.toIntOption).getOrElse(8090)
-    val server = HttpServer.create(new InetSocketAddress(host, port), 0)
+    val server = HttpServer.create(new InetSocketAddress(config.server.host, config.server.port), 0)
+    server.setExecutor(Executors.newFixedThreadPool(4))
 
     route(server, "/v1/training-data") { body =>
-      prepareTrainingData(readJson(body))
+      prepareTrainingData(parseBody(body))
     }
 
     route(server, "/v1/training-results") { body =>
-      store.saveTrainingResults(readJson(body))
+      store.saveTrainingResults(parseBody(body))
+      println("Training results saved to MongoDB")
       Json.obj("saved" -> Json.fromBoolean(true))
     }
 
@@ -47,7 +51,7 @@ object DataMartApp {
       spark.stop()
     }
     server.start()
-    println(s"Data mart is listening on $host:$port")
+    println(s"Data mart is listening on ${config.server.host}:${config.server.port}")
     new CountDownLatch(1).await()
   }
 
@@ -77,14 +81,14 @@ object DataMartApp {
       .dropDuplicates()
 
     val sampled = sampleIfNeeded(prepared, requestData.targetRows, requestData.seed)
-    val rows = sampled.toJSON.collect().flatMap(parse(_).toOption)
+    val rows = sampled.toJSON.collect().flatMap(parseJson)
 
     Json.obj(
-      "rows" -> Json.arr(rows: _*),
-      "featureCols" -> Json.arr(featureColumns.map(Json.fromString): _*),
-      "productCols" -> Json.arr(productCols.map(Json.fromString): _*),
-      "totalRows" -> Json.fromLong(totalRows),
-      "workingRows" -> Json.fromInt(rows.length)
+      Rows -> Json.arr(rows: _*),
+      FeatureCols -> Json.arr(featureColumns.map(Json.fromString): _*),
+      ProductCols -> Json.arr(productCols.map(Json.fromString): _*),
+      TotalRows -> Json.fromLong(totalRows),
+      WorkingRows -> Json.fromInt(rows.length)
     )
   }
 
@@ -203,10 +207,10 @@ object DataMartApp {
   private object TrainingDataRequest {
     def fromJson(json: Json): TrainingDataRequest =
       TrainingDataRequest(
-        inputPath = text(json, "inputPath", "../data/food_small.parquet"),
-        minNonNullRatio = number(json, "minNonNullRatio", 0.9),
-        targetRows = int(json, "targetRows", 100000),
-        seed = int(json, "seed", 42).toLong
+        inputPath = text(json, InputPath, "../data/food_small.parquet"),
+        minNonNullRatio = number(json, MinNonNullRatio, 0.9),
+        targetRows = int(json, TargetRows, 100000),
+        seed = int(json, Seed, 42).toLong
       )
   }
 
@@ -217,22 +221,73 @@ object DataMartApp {
 
   private def isNumeric(t: DataType): Boolean = t.isInstanceOf[NumericType]
 
-  private def readJson(body: String): Json = if (body.trim.isEmpty) Json.obj() else parse(body).fold(throw _, identity)
-
   private def text(json: Json, name: String, default: String): String = json.hcursor.downField(name).as[String].getOrElse(default)
 
   private def int(json: Json, name: String, default: Int): Int = json.hcursor.downField(name).as[Int].getOrElse(default)
 
   private def number(json: Json, name: String, default: Double): Double = json.hcursor.downField(name).as[Double].getOrElse(default)
 
-  private def ok(data: Json): Json = Json.obj("status" -> Json.fromString("ok"), "data" -> data)
-
-  private def error(message: String): Json = Json.obj("status" -> Json.fromString("error"), "error" -> Json.fromString(message))
-
   private def write(exchange: HttpExchange, code: Int, json: Json): Unit = {
     val bytes = json.noSpaces.getBytes(StandardCharsets.UTF_8)
     exchange.getResponseHeaders.add("Content-Type", "application/json; charset=utf-8")
     exchange.sendResponseHeaders(code, bytes.length)
     exchange.getResponseBody.write(bytes)
+  }
+
+  private final case class DataMartConfig(
+      server: ServerConfig,
+      spark: SparkConfig,
+      mongo: MongoConfig
+  )
+
+  private final case class ServerConfig(host: String, port: Int)
+
+  private final case class SparkConfig(
+      appName: String,
+      master: String,
+      driverMemory: String,
+      shufflePartitions: String,
+      logLevel: String
+  )
+
+  private final case class MongoConfig(uri: String, database: String)
+
+  private object DataMartConfig {
+    def load(): DataMartConfig = {
+      val path = sys.env.getOrElse("DATAMART_CONFIG", "config.json")
+      val json = parseBody(scala.io.Source.fromFile(path, "UTF-8").mkString)
+
+      DataMartConfig(
+        server = ServerConfig(
+          host = env("DATAMART_HOST", textAt(json, "server", "host", "0.0.0.0")),
+          port = env("DATAMART_PORT", intAt(json, "server", "port", 8090).toString).toInt
+        ),
+        spark = SparkConfig(
+          appName = env("DATAMART_SPARK_APP_NAME", textAt(json, "spark", "app_name", "OpenFoodFacts-DataMart")),
+          master = env("DATAMART_SPARK_MASTER", textAt(json, "spark", "master", "local[*]")),
+          driverMemory = env("DATAMART_SPARK_DRIVER_MEMORY", textAt(json, "spark", "driver_memory", "2g")),
+          shufflePartitions = env("DATAMART_SPARK_SHUFFLE_PARTITIONS", textAt(json, "spark", "shuffle_partitions", "8")),
+          logLevel = env("DATAMART_SPARK_LOG_LEVEL", textAt(json, "spark", "log_level", "WARN"))
+        ),
+        mongo = MongoConfig(
+          uri = requiredTextAt(json, "mongo", "uri"),
+          database = requiredTextAt(json, "mongo", "database")
+        )
+      )
+    }
+
+    private def env(name: String, default: String): String =
+      sys.env.getOrElse(name, default)
+
+    private def textAt(json: Json, section: String, name: String, default: String): String =
+      json.hcursor.downField(section).downField(name).as[String].getOrElse(default)
+
+    private def intAt(json: Json, section: String, name: String, default: Int): Int =
+      json.hcursor.downField(section).downField(name).as[Int].getOrElse(default)
+
+    private def requiredTextAt(json: Json, section: String, name: String): String =
+      json.hcursor.downField(section).downField(name).as[String].getOrElse {
+        throw new IllegalArgumentException(s"Missing config value: $section.$name")
+      }
   }
 }

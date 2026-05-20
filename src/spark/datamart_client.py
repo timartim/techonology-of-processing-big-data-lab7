@@ -12,20 +12,58 @@ import numpy as np
 from pyspark.sql import Row
 
 
+class DataMartProtocol:
+    STATUS = "status"
+    DATA = "data"
+    ERROR = "error"
+
+    ROWS = "rows"
+    FEATURE_COLS = "featureCols"
+    PRODUCT_COLS = "productCols"
+    TOTAL_ROWS = "totalRows"
+    WORKING_ROWS = "workingRows"
+
+    INPUT_PATH = "inputPath"
+    MIN_NON_NULL_RATIO = "minNonNullRatio"
+    TARGET_ROWS = "targetRows"
+    SEED = "seed"
+
+    PROFILES = "profiles"
+    CENTERS = "centers"
+    METRICS = "metrics"
+    MODEL_INFO = "modelInfo"
+
+    @classmethod
+    def training_data_request(cls, input_path: str, min_non_null_ratio: float, target_rows: int, seed: int):
+        return {
+            cls.INPUT_PATH: input_path,
+            cls.MIN_NON_NULL_RATIO: min_non_null_ratio,
+            cls.TARGET_ROWS: target_rows,
+            cls.SEED: seed,
+        }
+
+    @classmethod
+    def training_results_request(cls, profiles, centers, metrics: dict, model_info: dict):
+        return {
+            cls.PROFILES: profiles,
+            cls.CENTERS: centers,
+            cls.METRICS: metrics,
+            cls.MODEL_INFO: model_info,
+        }
+
+
 class DataMartClient:
     def __init__(self, base_url: str):
         self.base_url = base_url.rstrip("/")
 
     def load_prepared_training_data(self, spark, input_path: str, min_non_null_ratio: float, target_rows: int, seed: int):
-        response = self._post("/v1/training-data", {
-            "inputPath": input_path,
-            "minNonNullRatio": min_non_null_ratio,
-            "targetRows": target_rows,
-            "seed": seed,
-        })
+        response = self._post(
+            "/v1/training-data",
+            DataMartProtocol.training_data_request(input_path, min_non_null_ratio, target_rows, seed),
+        )
 
-        data = response["data"]
-        rows = data["rows"]
+        data = response[DataMartProtocol.DATA]
+        rows = data[DataMartProtocol.ROWS]
         if not rows:
             raise ValueError("Витрина вернула пустой набор данных для обучения")
 
@@ -37,19 +75,22 @@ class DataMartClient:
 
         return (
             spark.read.json(path),
-            data["featureCols"],
-            data["productCols"],
-            int(data["totalRows"]),
-            int(data["workingRows"]),
+            data[DataMartProtocol.FEATURE_COLS],
+            data[DataMartProtocol.PRODUCT_COLS],
+            int(data[DataMartProtocol.TOTAL_ROWS]),
+            int(data[DataMartProtocol.WORKING_ROWS]),
         )
 
     def save_training_results(self, profiles_df, centers_df, metrics: dict, model_info: dict) -> None:
-        self._post("/v1/training-results", {
-            "profiles": self._dataframe_rows(profiles_df),
-            "centers": self._dataframe_rows(centers_df),
-            "metrics": self._clean(metrics),
-            "modelInfo": self._clean(model_info),
-        })
+        self._post(
+            "/v1/training-results",
+            DataMartProtocol.training_results_request(
+                profiles=self._dataframe_rows(profiles_df),
+                centers=self._dataframe_rows(centers_df),
+                metrics=self._clean(metrics),
+                model_info=self._clean(model_info),
+            ),
+        )
 
     def _post(self, path: str, payload: dict):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
@@ -74,8 +115,8 @@ class DataMartClient:
         if parsed is None:
             raise RuntimeError(f"Витрина данных недоступна: {last_error}")
 
-        if parsed.get("status") != "ok":
-            raise RuntimeError(parsed.get("error", "Data mart request failed"))
+        if parsed.get(DataMartProtocol.STATUS) != "ok":
+            raise RuntimeError(parsed.get(DataMartProtocol.ERROR, "Data mart request failed"))
 
         return parsed
 

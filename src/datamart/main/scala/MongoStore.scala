@@ -1,25 +1,24 @@
 package ru.bigdata.datamart
 
 import io.circe.Json
-import org.mongodb.scala._
-import org.mongodb.scala.bson.collection.immutable.Document
+import com.mongodb.client.MongoClients
+import org.bson.Document
 
 import java.time.Instant
-import scala.concurrent.Await
-import scala.concurrent.duration._
+import scala.jdk.CollectionConverters._
+import Protocol._
 
 final class MongoStore(mongoUri: String, databaseName: String) {
-  private val client = MongoClient(mongoUri)
+  private val client = MongoClients.create(mongoUri)
   private val database = client.getDatabase(databaseName)
-  private val timeout = 60.seconds
 
   def saveTrainingResults(request: Json): Unit = {
     val runId = Instant.now().toString
 
-    replaceJsonList("cluster_profiles", request, "profiles")
-    replaceJsonList("cluster_centers", request, "centers")
-    replaceJsonDocument("training_metrics", field(request, "metrics"), runId)
-    replaceJsonDocument("model_info", field(request, "modelInfo"), runId)
+    replaceJsonList("cluster_profiles", request, Profiles)
+    replaceJsonList("cluster_centers", request, Centers)
+    replaceJsonDocument("training_metrics", field(request, Metrics), runId)
+    replaceJsonDocument("model_info", field(request, ModelInfo), runId)
   }
 
   def close(): Unit = client.close()
@@ -38,16 +37,13 @@ final class MongoStore(mongoUri: String, databaseName: String) {
 
   private def replace(name: String, docs: List[Document]): Unit = {
     val collection = database.getCollection(name)
-    await(collection.deleteMany(Document()))
-    if (docs.nonEmpty) await(collection.insertMany(docs))
+    collection.deleteMany(new Document())
+    if (docs.nonEmpty) collection.insertMany(docs.asJava)
   }
 
   private def withRunId(json: Json, runId: String): Document =
-    toDocument(json) + ("run_id" -> runId)
+    toDocument(json).append("run_id", runId)
 
   private def toDocument(json: Json): Document =
-    Document(json.noSpaces)
-
-  private def await[T](observable: SingleObservable[T]): T =
-    Await.result(observable.toFuture(), timeout)
+    Document.parse(json.noSpaces)
 }

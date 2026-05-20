@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
 import json
-import os
 
 
 @dataclass
@@ -61,13 +60,10 @@ def load_config(config_path: str | None = None) -> AppConfig:
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    datamart_data = data.get("datamart", {})
-    datamart_data["url"] = os.getenv("DATAMART_URL", datamart_data.get("url", "http://localhost:8090"))
-
     return AppConfig(
         spark=SparkConfig(**data["spark"]),
         data=DataConfig(**data["data"]),
-        datamart=DataMartConfig(**datamart_data),
+        datamart=DataMartConfig(**data["datamart"]),
         preprocessing=PreprocessingConfig(**data["preprocessing"]),
         training=TrainingConfig(**data["training"]),
         base_dir=path.parent.resolve(),

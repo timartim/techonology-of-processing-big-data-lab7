@@ -4,8 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: openfoodfacts-kmeans-app
-    environment:
-      DATAMART_URL: http://datamart:8090
     volumes:
       - ./src/spark:/app/src/spark
       - ./src/data:/app/src/data
@@ -22,10 +20,7 @@ services:
       dockerfile: Dockerfile.datamart
     container_name: openfoodfacts-datamart
     environment:
-      DATAMART_HOST: 0.0.0.0
-      DATAMART_PORT: 8090
-      MONGO_URI: mongodb://mongo:27017/openfoodfacts
-      MONGO_DATABASE: openfoodfacts
+      DATAMART_CONFIG: config.json
     ports:
       - "8090:8090"
     volumes:

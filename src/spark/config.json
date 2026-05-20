@@ -16,7 +16,7 @@
     "model_root": "../models/openfoodfacts_kmeans"
   },
   "datamart": {
-    "url": "http://localhost:8090"
+    "url": "http://datamart:8090"
   },
   "preprocessing": {
     "min_non_null_ratio": 0.9,

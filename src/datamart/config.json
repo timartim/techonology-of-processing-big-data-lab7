@@ -5,9 +5,16 @@
   },
   "spark": {
     "app_name": "OpenFoodFacts-DataMart",
-    "master": "local[*]",
-    "driver_memory": "2g",
-    "shuffle_partitions": "8",
+    "master": "local[2]",
+    "driver_memory": "1g",
+    "driver_cores": "1",
+    "executor_memory": "1g",
+    "executor_cores": "1",
+    "memory_overhead": "256m",
+    "max_result_size": "256m",
+    "default_parallelism": "4",
+    "shuffle_partitions": "4",
+    "adaptive_enabled": "true",
     "log_level": "WARN"
   },
   "mongo": {

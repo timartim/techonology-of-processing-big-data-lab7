@@ -1,7 +1,7 @@
 {
   "model_type": "pyspark.ml.clustering.KMeansModel",
   "best_k": 2,
-  "best_score": 0.5142106352646723,
+  "best_score": 0.5040829632035893,
   "metric_name": "silhouette",
   "feature_cols": [
     "additives_n",

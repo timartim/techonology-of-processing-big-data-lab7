@@ -2,6 +2,7 @@ ThisBuild / scalaVersion := "2.13.16"
 ThisBuild / organization := "ru.bigdata"
 
 lazy val root = (project in file("."))
+  .enablePlugins(JavaAppPackaging)
   .settings(
     name := "openfoodfacts-datamart",
     Compile / scalaSource := baseDirectory.value / "main" / "scala",

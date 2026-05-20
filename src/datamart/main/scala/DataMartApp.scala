@@ -21,7 +21,14 @@ object DataMartApp {
     .appName(config.spark.appName)
     .master(config.spark.master)
     .config("spark.driver.memory", config.spark.driverMemory)
+    .config("spark.driver.cores", config.spark.driverCores)
+    .config("spark.executor.memory", config.spark.executorMemory)
+    .config("spark.executor.cores", config.spark.executorCores)
+    .config("spark.executor.memoryOverhead", config.spark.memoryOverhead)
+    .config("spark.driver.maxResultSize", config.spark.maxResultSize)
+    .config("spark.default.parallelism", config.spark.defaultParallelism)
     .config("spark.sql.shuffle.partitions", config.spark.shufflePartitions)
+    .config("spark.sql.adaptive.enabled", config.spark.adaptiveEnabled)
     .getOrCreate()
 
   spark.sparkContext.setLogLevel(config.spark.logLevel)
@@ -246,7 +253,14 @@ object DataMartApp {
       appName: String,
       master: String,
       driverMemory: String,
+      driverCores: String,
+      executorMemory: String,
+      executorCores: String,
+      memoryOverhead: String,
+      maxResultSize: String,
+      defaultParallelism: String,
       shufflePartitions: String,
+      adaptiveEnabled: String,
       logLevel: String
   )
 
@@ -264,9 +278,16 @@ object DataMartApp {
         ),
         spark = SparkConfig(
           appName = env("DATAMART_SPARK_APP_NAME", textAt(json, "spark", "app_name", "OpenFoodFacts-DataMart")),
-          master = env("DATAMART_SPARK_MASTER", textAt(json, "spark", "master", "local[*]")),
-          driverMemory = env("DATAMART_SPARK_DRIVER_MEMORY", textAt(json, "spark", "driver_memory", "2g")),
-          shufflePartitions = env("DATAMART_SPARK_SHUFFLE_PARTITIONS", textAt(json, "spark", "shuffle_partitions", "8")),
+          master = env("DATAMART_SPARK_MASTER", textAt(json, "spark", "master", "local[2]")),
+          driverMemory = env("DATAMART_SPARK_DRIVER_MEMORY", textAt(json, "spark", "driver_memory", "1g")),
+          driverCores = env("DATAMART_SPARK_DRIVER_CORES", textAt(json, "spark", "driver_cores", "1")),
+          executorMemory = env("DATAMART_SPARK_EXECUTOR_MEMORY", textAt(json, "spark", "executor_memory", "1g")),
+          executorCores = env("DATAMART_SPARK_EXECUTOR_CORES", textAt(json, "spark", "executor_cores", "1")),
+          memoryOverhead = env("DATAMART_SPARK_MEMORY_OVERHEAD", textAt(json, "spark", "memory_overhead", "256m")),
+          maxResultSize = env("DATAMART_SPARK_MAX_RESULT_SIZE", textAt(json, "spark", "max_result_size", "256m")),
+          defaultParallelism = env("DATAMART_SPARK_DEFAULT_PARALLELISM", textAt(json, "spark", "default_parallelism", "4")),
+          shufflePartitions = env("DATAMART_SPARK_SHUFFLE_PARTITIONS", textAt(json, "spark", "shuffle_partitions", "4")),
+          adaptiveEnabled = env("DATAMART_SPARK_ADAPTIVE_ENABLED", textAt(json, "spark", "adaptive_enabled", "true")),
           logLevel = env("DATAMART_SPARK_LOG_LEVEL", textAt(json, "spark", "log_level", "WARN"))
         ),
         mongo = MongoConfig(

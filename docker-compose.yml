@@ -24,7 +24,7 @@ services:
     ports:
       - "8090:8090"
     volumes:
-      - ./src/datamart:/app/src/datamart
+      - ./src/datamart/config.json:/app/src/datamart/config.json:ro
       - ./src/data:/app/src/data
     healthcheck:
       test: ["CMD-SHELL", "bash -c '</dev/tcp/localhost/8090'"]
